@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>NeoSOC | AI Log Analyzer</title>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- Socket.IO -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background: radial-gradient(circle at 10% 20%, #0a0f1e, #03060c);
+            color: #eef2ff;
+            padding: 1.5rem;
+            min-height: 100vh;
+        }
+
+        /* Glassmorphism container */
+        .glass-panel {
+            background: rgba(15, 25, 45, 0.55);
+            backdrop-filter: blur(12px);
+            border-radius: 2rem;
+            border: 1px solid rgba(0, 255, 255, 0.15);
+            box-shadow: 0 25px 40px rgba(0,0,0,0.5);
+            padding: 1.8rem;
+            transition: all 0.2s ease;
+        }
+
+        /* Header section */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+        .title-section h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #00f2fe, #4facfe);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .title-section p {
+            color: #8e9ecc;
+            font-size: 0.9rem;
+            margin-top: 0.3rem;
+        }
+        .status-badge {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .badge {
+            background: rgba(0, 200, 255, 0.12);
+            border-radius: 40px;
+            padding: 0.5rem 1.2rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(0, 255, 255, 0.3);
+        }
+        .badge i {
+            margin-right: 8px;
+            color: #0ff;
+        }
+        .badge.live {
+            background: rgba(255, 50, 50, 0.2);
+            border-color: #ff4d4d;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 77, 77, 0.4); }
+            70% { box-shadow: 0 0 0 8px rgba(255, 77, 77, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 77, 77, 0); }
+        }
+
+        /* Stats cards */
+        .stats-row {
+            display: flex;
+            gap: 1.2rem;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: rgba(0, 20, 40, 0.6);
+            backdrop-filter: blur(8px);
+            border-radius: 1.5rem;
+            padding: 1rem 1.5rem;
+            flex: 1;
+            min-width: 140px;
+            border-bottom: 2px solid #0ff;
+            transition: transform 0.2s;
+        }
+        .stat-card:hover {
+            transform: translateY(-3px);
+            background: rgba(0, 30, 60, 0.8);
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #0ff;
+            text-shadow: 0 0 5px #0ff8;
+        }
+        .stat-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #9bb3d9;
+        }
+
+        /* Two column layout */
+        .two-columns {
+            display: flex;
+            gap: 1.8rem;
+            flex-wrap: wrap;
+        }
+        .column {
+            flex: 1;
+            min-width: 280px;
+        }
+        .log-window, .alert-window {
+            background: rgba(0, 0, 0, 0.45);
+            border-radius: 1.2rem;
+            padding: 1rem;
+            height: 65vh;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(0, 255, 255, 0.2);
+        }
+        .window-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding-bottom: 0.8rem;
+            border-bottom: 1px solid #2a3a5a;
+            margin-bottom: 1rem;
+        }
+        .window-header h3 {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+        .count-badge {
+            background: #1e2a3a;
+            padding: 0.2rem 0.7rem;
+            border-radius: 30px;
+            font-size: 0.7rem;
+        }
+        .log-list, .alert-list {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'JetBrains Mono', 'Courier New', monospace;
+            font-size: 0.75rem;
+            scroll-behavior: smooth;
+        }
+        .log-item, .alert-item {
+            margin-bottom: 0.6rem;
+            padding: 0.6rem;
+            border-radius: 12px;
+            transition: all 0.1s ease;
+        }
+        .log-item {
+            background: rgba(0, 30, 50, 0.4);
+            border-left: 3px solid #0ff;
+        }
+        .alert-item {
+            background: rgba(255, 60, 60, 0.1);
+            border-left: 3px solid #ff4d4d;
+            box-shadow: 0 0 6px rgba(255,0,0,0.2);
+        }
+        .log-time {
+            color: #66c2ff;
+            font-size: 0.65rem;
+            margin-right: 8px;
+        }
+        .alert-time {
+            color: #ffaa66;
+        }
+        .source-badge {
+            background: #1f3a4b;
+            border-radius: 12px;
+            padding: 0.1rem 0.5rem;
+            font-size: 0.65rem;
+            margin-right: 8px;
+        }
+        .alert-text {
+            font-weight: 500;
+            color: #ffe0e0;
+        }
+
+        /* Chart section */
+        .chart-container {
+            margin-top: 2rem;
+            background: rgba(0, 20, 40, 0.5);
+            border-radius: 1.5rem;
+            padding: 1rem;
+        }
+        canvas {
+            max-height: 220px;
+            width: 100%;
+        }
+        footer {
+            text-align: center;
+            margin-top: 2rem;
+            font-size: 0.7rem;
+            color: #5a6e8a;
+        }
+
+        /* Custom scroll */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #0a1424; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: #0ff; border-radius: 10px; }
+    </style>
+</head>
+<body>
+<div class="glass-panel">
+    <div class="header">
+        <div class="title-section">
+            <h1><i class="fas fa-shield-alt"></i> NeoSOC · AI Log Analyzer</h1>
+            <p>Real‑time anomaly detection | Isolation Forest | Multi‑source</p>
+        </div>
+        <div class="status-badge">
+            <div class="badge"><i class="fas fa-server"></i> Linux · Windows · Syslog</div>
+            <div class="badge live"><i class="fas fa-circle" style="font-size: 0.7rem;"></i> LIVE STREAM</div>
+        </div>
+    </div>
+
+    <!-- Stats cards -->
+    <div class="stats-row">
+        <div class="stat-card">
+            <div class="stat-value" id="totalLogsCount">0</div>
+            <div class="stat-label"><i class="fas fa-database"></i> Total Logs</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="totalAlertsCount">0</div>
+            <div class="stat-label"><i class="fas fa-bell"></i> Critical Alerts</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="alertRate">0</div>
+            <div class="stat-label"><i class="fas fa-chart-line"></i> Alerts / min</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" id="activeSources">3</div>
+            <div class="stat-label"><i class="fas fa-plug"></i> Active Collectors</div>
+        </div>
+    </div>
+
+    <!-- Live logs & alerts -->
+    <div class="two-columns">
+        <div class="column">
+            <div class="log-window">
+                <div class="window-header">
+                    <h3><i class="fas fa-terminal"></i> Live Log Stream</h3>
+                    <span class="count-badge" id="logCountBadge">0</span>
+                </div>
+                <div id="logList" class="log-list">
+                    <div class="log-item">⏳ Waiting for telemetry...</div>
+                </div>
+            </div>
+        </div>
+        <div class="column">
+            <div class="alert-window">
+                <div class="window-header">
+                    <h3><i class="fas fa-exclamation-triangle"></i> Anomaly Alerts</h3>
+                    <span class="count-badge" id="alertCountBadge">0</span>
+                </div>
+                <div id="alertList" class="alert-list">
+                    <div class="alert-item">✅ No threats yet</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Alert frequency chart -->
+    <div class="chart-container">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <span><i class="fas fa-chart-simple"></i> Alert frequency (last 20 events)</span>
+            <span style="font-size: 0.7rem;">anomaly spikes</span>
+        </div>
+        <canvas id="alertChart" width="400" height="150" style="max-height: 180px;"></canvas>
+    </div>
+    <footer>
+        🛡️ ML Engine: Isolation Forest | Real‑time ingestion via UDP:514, Windows EventLog, /var/log/auth.log
+    </footer>
+</div>
+
+<script>
+    // Connect to Socket.IO
+    const socket = io();
+
+    // DOM elements
+    const logContainer = document.getElementById('logList');
+    const alertContainer = document.getElementById('alertList');
+    const totalLogsSpan = document.getElementById('totalLogsCount');
+    const totalAlertsSpan = document.getElementById('totalAlertsCount');
+    const alertRateSpan = document.getElementById('alertRate');
+    const logCountBadge = document.getElementById('logCountBadge');
+    const alertCountBadge = document.getElementById('alertCountBadge');
+
+    // Data state
+    let totalLogs = 0;
+    let totalAlerts = 0;
+    let alertTimestamps = []; // store timestamps for rate calculation (last minute)
+    
+    // Chart setup
+    const ctx = document.getElementById('alertChart').getContext('2d');
+    let alertChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Alerts',
+                data: [],
+                borderColor: '#ff4d4d',
+                backgroundColor: 'rgba(255, 77, 77, 0.1)',
+                tension: 0.3,
+                fill: true,
+                pointBackgroundColor: '#ff8888',
+                pointBorderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: { labels: { color: '#ccc' } },
+                tooltip: { mode: 'index', intersect: false }
+            },
+            scales: {
+                y: { beginAtZero: true, grid: { color: '#2a3a55' }, ticks: { color: '#aac' } },
+                x: { ticks: { color: '#aac', maxRotation: 30 } }
+            }
+        }
+    });
+
+    // Helper: update alert chart with last 20 events
+    function updateChart(newAlertTime) {
+        const now = new Date();
+        const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute:'2-digit', second:'2-digit' });
+        alertChart.data.labels.push(timeLabel);
+        alertChart.data.datasets[0].data.push(1);
+        // keep only last 20 points
+        if (alertChart.data.labels.length > 20) {
+            alertChart.data.labels.shift();
+            alertChart.data.datasets[0].data.shift();
+        }
+        alertChart.update();
+    }
+
+    // Calculate alerts per minute (rolling)
+    function updateAlertRate() {
+        const now = Date.now();
+        // remove timestamps older than 60 seconds
+        alertTimestamps = alertTimestamps.filter(ts => (now - ts) <= 60000);
+        const rate = alertTimestamps.length;
+        alertRateSpan.innerText = rate;
+    }
+
+    // Add log entry
+    function addLogEntry(log) {
+        const div = document.createElement('div');
+        div.className = 'log-item';
+        div.innerHTML = `<span class="log-time">[${log.timestamp}]</span> <span class="source-badge">${log.source}</span> ${escapeHtml(log.raw)}`;
+        logContainer.prepend(div);
+        if (logContainer.children.length > 120) logContainer.removeChild(logContainer.lastChild);
+        totalLogs++;
+        totalLogsSpan.innerText = totalLogs;
+        logCountBadge.innerText = totalLogs;
+    }
+
+    // Add alert entry
+    function addAlertEntry(alert) {
+        const div = document.createElement('div');
+        div.className = 'alert-item';
+        div.innerHTML = `<span class="alert-time">⚠️ ${alert.timestamp}</span><br><span class="alert-text">${escapeHtml(alert.message)}</span>`;
+        alertContainer.prepend(div);
+        if (alertContainer.children.length > 70) alertContainer.removeChild(alertContainer.lastChild);
+        
+        totalAlerts++;
+        totalAlertsSpan.innerText = totalAlerts;
+        alertCountBadge.innerText = totalAlerts;
+        
+        // update rate tracking
+        alertTimestamps.push(Date.now());
+        updateAlertRate();
+        // update chart
+        updateChart(alert.timestamp);
+    }
+
+    // simple XSS protection
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/[&<>]/g, function(m) {
+            if (m === '&') return '&amp;';
+            if (m === '<') return '&lt;';
+            if (m === '>') return '&gt;';
+            return m;
+        }).replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(c) {
+            return c;
+        });
+    }
+
+    // Socket event handlers
+    socket.on('connect', () => {
+        console.log('🔌 WebSocket live');
+    });
+
+    socket.on('init', (data) => {
+        logContainer.innerHTML = '';
+        alertContainer.innerHTML = '';
+        totalLogs = 0;
+        totalAlerts = 0;
+        alertTimestamps = [];
+        
+        data.logs.forEach(log => addLogEntry(log));
+        data.alerts.forEach(alert => addAlertEntry(alert));
+        
+        if (data.logs.length === 0) logContainer.innerHTML = '<div class="log-item">📡 Waiting for logs...</div>';
+        if (data.alerts.length === 0) alertContainer.innerHTML = '<div class="alert-item">✨ No anomalies detected</div>';
+        
+        totalLogsSpan.innerText = totalLogs;
+        totalAlertsSpan.innerText = totalAlerts;
+        logCountBadge.innerText = totalLogs;
+        alertCountBadge.innerText = totalAlerts;
+        updateAlertRate();
+        // reset chart
+        alertChart.data.labels = [];
+        alertChart.data.datasets[0].data = [];
+        alertChart.update();
+    });
+
+    socket.on('new_log', (log) => {
+        addLogEntry(log);
+    });
+
+    socket.on('new_alert', (alert) => {
+        addAlertEntry(alert);
+        // tiny vibration effect (optional)
+        const alertPanel = document.querySelector('.alert-window');
+        if (alertPanel) alertPanel.style.boxShadow = '0 0 8px #ff4d4d';
+        setTimeout(() => { if(alertPanel) alertPanel.style.boxShadow = ''; }, 300);
+    });
+
+    // periodic rate update (every 5 sec)
+    setInterval(updateAlertRate, 5000);
+</script>
+</body>
+</html>
